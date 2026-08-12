@@ -1,0 +1,55 @@
+{
+  "enabled": {
+    "description": "启用静默心跳",
+    "type": "bool",
+    "default": false
+  },
+  "private_session_id": {
+    "description": "主人私聊 UMO",
+    "type": "string",
+    "hint": "唯一允许读取并主动私聊的会话标识。未配置时插件不运行。",
+    "default": ""
+  },
+  "authorized_group_session_ids": {
+    "description": "授权群聊",
+    "type": "list",
+    "hint": "填写完整群聊 UMO，例如 astrbot_onebot:GroupMessage:<group_qq>。仅这些群的记忆可被读取或接收群聊主动消息。",
+    "default": []
+  },
+  "interval_minutes": {
+    "description": "心跳间隔（分钟）",
+    "type": "int",
+    "default": 60
+  },
+  "target_cooldown_minutes": {
+    "description": "单目标最短发送间隔（分钟）",
+    "type": "int",
+    "default": 180
+  },
+  "provider_id": {
+    "description": "决策模型 ID",
+    "type": "string",
+    "hint": "留空时使用主人私聊的默认模型。",
+    "default": ""
+  },
+  "context_top_k": {
+    "description": "每个记忆域召回条数",
+    "type": "int",
+    "default": 5
+  },
+  "context_max_chars": {
+    "description": "每个记忆域上下文最大字符数",
+    "type": "int",
+    "default": 900
+  },
+  "context_timeout_seconds": {
+    "description": "单个记忆域读取超时（秒）",
+    "type": "float",
+    "default": 3.0
+  },
+  "system_prompt": {
+    "description": "心跳系统提示词",
+    "type": "text",
+    "default": "You are a restrained companion heartbeat. Silence is the normal outcome. Never invent facts or expose one authorized domain's private information to another domain."
+  }
+}
