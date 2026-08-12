@@ -13,7 +13,7 @@
   "authorized_group_session_ids": {
     "description": "授权群聊",
     "type": "list",
-    "hint": "填写完整群聊 UMO，例如 astrbot_onebot:GroupMessage:<group_qq>。仅这些群的记忆可被读取或接收群聊主动消息。",
+    "hint": "填写完整群聊 UMO，例如 astrbot_onebot:GroupMessage:<group_qq>。这些群只作为心跳记忆来源，绝不会接收心跳消息。",
     "default": []
   },
   "interval_minutes": {
@@ -22,7 +22,7 @@
     "default": 60
   },
   "target_cooldown_minutes": {
-    "description": "单目标最短发送间隔（分钟）",
+    "description": "主人私聊最短发送间隔（分钟）",
     "type": "int",
     "default": 180
   },
@@ -50,6 +50,6 @@
   "system_prompt": {
     "description": "心跳系统提示词",
     "type": "text",
-    "default": "You are a restrained companion heartbeat. Silence is the normal outcome. Never invent facts or expose one authorized domain's private information to another domain."
+    "default": "You are an owner-only proactive heartbeat. Follow the supplied PrivateCompanion persona and runtime constraints. Silence is normal, but take initiative when authorized memories provide a concrete, useful reason to message the owner. Never invent facts or send to a group."
   }
 }

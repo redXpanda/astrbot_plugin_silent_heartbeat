@@ -1,10 +1,10 @@
 name: astrbot_plugin_silent_heartbeat
 display_name: Silent Heartbeat
-short_desc: A memory-aware heartbeat that defaults to silence.
+short_desc: A PrivateCompanion-reviewed memory heartbeat.
 desc: |
-  Reviews one authorized private memory domain and explicit group domains.
-  It stays silent unless a validated model decision permits an action.
-version: 0.2.0
+  Reviews authorized MemoryCompanion sources through PrivateCompanion persona rules.
+  It stays silent unless a reviewed decision messages the owner privately.
+version: 0.4.0
 author: local
 repo: https://github.com/redXpanda/astrbot_plugin_silent_heartbeat
 astrbot_version: ">=4.16,<5"

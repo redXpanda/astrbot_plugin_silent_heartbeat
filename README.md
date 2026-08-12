@@ -1,6 +1,16 @@
 # Silent Heartbeat
 
-MemoryCompanion-aware heartbeat for one authorized private session and explicit group sessions. It reads every memory domain independently, defaults to `silent`, and only permits output to a configured target.
+An owner-only heartbeat that combines MemoryCompanion with PrivateCompanion.
+
+On each interval, it:
+
+1. Calls PrivateCompanion's public proactive preflight to obtain the current persona, relationship, expression, schedule, and delivery constraints.
+2. Reads the configured private and group memory domains from MemoryCompanion.
+3. Lets the configured model choose `silent` or one candidate message for the owner.
+4. Sends the candidate through PrivateCompanion's public final review.
+5. Sends only an approved message to the configured private session and records the delivery back to PrivateCompanion.
+
+Any block, error, invalid model response, or rejected review releases the PrivateCompanion send lock and results in silence. Group sessions are read-only memory sources; this plugin never sends a heartbeat message to a group.
 
 ```json
 {
@@ -12,10 +22,12 @@ MemoryCompanion-aware heartbeat for one authorized private session and explicit 
 }
 ```
 
-The model must return exactly one JSON object:
+The only accepted model outputs are:
 
 ```json
 {"action":"silent","target":"","message":""}
 ```
 
-Only a valid `private` or whitelisted `group:<group_id>` target can send a message. Invalid model output, unavailable MemoryCompanion, unavailable provider, or a target cooldown all result in silence.
+```json
+{"action":"message","target":"private","message":"..."}
+```

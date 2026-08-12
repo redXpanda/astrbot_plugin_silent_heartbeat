@@ -15,11 +15,11 @@ from astrbot.api.star import Context, Star, register
 @register(
     name="astrbot_plugin_silent_heartbeat",
     author="local",
-    desc="A memory-aware heartbeat that defaults to silence.",
-    version="0.2.0",
+    desc="A memory-aware heartbeat with one private output.",
+    version="0.4.0",
 )
 class SilentHeartbeatPlugin(Star):
-    """Run authorized memory reviews and send only validated actions."""
+    """Review authorized memories and optionally message one private session."""
 
     def __init__(self, context: Context, config: dict[str, Any]) -> None:
         super().__init__(context)
@@ -59,40 +59,60 @@ class SilentHeartbeatPlugin(Star):
         """Review authorized memory domains and perform one validated action."""
         if not self._enabled():
             return
-        bridge = self._memory_bridge()
-        if bridge is None:
+        memory_bridge = self._memory_bridge()
+        if memory_bridge is None:
             logger.warning("[silent_heartbeat] MemoryCompanion bridge is unavailable; skipping heartbeat")
             return
-        domains = self._authorized_domains()
+        companion_api = self._private_companion_api()
+        if companion_api is None:
+            logger.warning("[silent_heartbeat] PrivateCompanion API is unavailable; skipping heartbeat")
+            return
+        private_session_id = self._private_session_id()
+        prepared = await companion_api.prepare_proactive_chat(private_session_id)
+        if not prepared.get("enabled") or not prepared.get("allowed") or not prepared.get("token"):
+            logger.debug("[silent_heartbeat] PrivateCompanion blocked heartbeat: %s", prepared.get("reason", "unknown"))
+            return
+        token = str(prepared["token"])
+        domains = self._memory_domains()
         if not domains:
             logger.warning("[silent_heartbeat] no authorized memory domains are configured")
+            await companion_api.cancel_proactive_chat(private_session_id, token=token)
             return
-        contexts = await self._compose_memory_contexts(bridge, domains)
-        if not contexts:
-            logger.debug("[silent_heartbeat] no authorized memory context is available")
-            return
-        provider = self._provider()
-        if provider is None:
-            logger.warning("[silent_heartbeat] no LLM provider is available")
-            return
-        response = await provider.text_chat(
-            prompt=self._prompt(contexts, domains),
-            system_prompt=str(self.config.get("system_prompt", "")).strip(),
-        )
-        decision = self._parse_decision(getattr(response, "completion_text", ""))
-        if decision is None or decision["action"] == "silent":
-            logger.debug("[silent_heartbeat] decision is silent")
-            return
-        target = domains.get(decision["target"])
-        if target is None or target["kind"] != decision["action"]:
-            logger.warning("[silent_heartbeat] rejected an unauthorized heartbeat target")
-            return
-        if self._in_cooldown(target["session_id"]):
-            logger.debug("[silent_heartbeat] target is in cooldown: %s", decision["target"])
-            return
-        await self.context.send_message(target["session_id"], MessageChain().message(decision["message"]))
-        self._last_sent_at[target["session_id"]] = time.monotonic()
-        logger.info("[silent_heartbeat] sent %s action to %s", decision["action"], decision["target"])
+        try:
+            contexts = await self._compose_memory_contexts(memory_bridge, domains)
+            if not contexts:
+                logger.debug("[silent_heartbeat] no authorized memory context is available")
+                return
+            provider = self._provider()
+            if provider is None:
+                logger.warning("[silent_heartbeat] no LLM provider is available")
+                return
+            response = await provider.text_chat(
+                prompt=self._prompt(contexts, str(prepared.get("prompt_fragment", ""))),
+                system_prompt=str(self.config.get("system_prompt", "")).strip(),
+            )
+            decision = self._parse_decision(getattr(response, "completion_text", ""))
+            if decision is None or decision["action"] == "silent":
+                logger.debug("[silent_heartbeat] decision is silent")
+                return
+            if self._in_cooldown(private_session_id):
+                logger.debug("[silent_heartbeat] private target is in cooldown")
+                return
+            reviewed = await companion_api.review_proactive_chat_message(
+                private_session_id,
+                decision["message"],
+                token=token,
+            )
+            message = str(reviewed.get("text", "")).strip()
+            if not reviewed.get("ok") or not message:
+                logger.debug("[silent_heartbeat] PrivateCompanion rejected heartbeat: %s", reviewed.get("reason", "unknown"))
+                return
+            await self.context.send_message(private_session_id, MessageChain().message(message))
+            self._last_sent_at[private_session_id] = time.monotonic()
+            await companion_api.notify_proactive_chat_sent(private_session_id, message, token=token)
+            logger.info("[silent_heartbeat] sent a PrivateCompanion-reviewed action")
+        finally:
+            await companion_api.cancel_proactive_chat(private_session_id, token=token)
 
     def _memory_bridge(self) -> Any | None:
         """Return the active public MemoryCompanion bridge when available."""
@@ -107,6 +127,27 @@ class SilentHeartbeatPlugin(Star):
                 continue
             if bridge is not None and callable(getattr(bridge, "compose_context", None)):
                 return bridge
+        return None
+
+    def _private_companion_api(self) -> Any | None:
+        """Return the public PrivateCompanion API when its heartbeat hooks are ready."""
+        for module_name in (
+            "data.plugins.astrbot_plugin_private_companion.main",
+            "astrbot_plugin_private_companion.main",
+        ):
+            try:
+                module = importlib.import_module(module_name)
+                api = getattr(module, "get_private_companion_api")()
+            except Exception:
+                continue
+            required = (
+                "prepare_proactive_chat",
+                "review_proactive_chat_message",
+                "notify_proactive_chat_sent",
+                "cancel_proactive_chat",
+            )
+            if api is not None and all(callable(getattr(api, name, None)) for name in required):
+                return api
         return None
 
     async def _compose_memory_contexts(self, bridge: Any, domains: dict[str, dict[str, str]]) -> list[str]:
@@ -143,8 +184,8 @@ class SilentHeartbeatPlugin(Star):
             return self.context.get_provider_by_id(provider_id)
         return self.context.get_using_provider(umo=self._private_session_id())
 
-    def _authorized_domains(self) -> dict[str, dict[str, str]]:
-        """Build private and group targets from explicit configuration only."""
+    def _memory_domains(self) -> dict[str, dict[str, str]]:
+        """Build private and group memory sources from explicit configuration only."""
         domains: dict[str, dict[str, str]] = {}
         private_session_id = self._private_session_id()
         if private_session_id:
@@ -166,17 +207,20 @@ class SilentHeartbeatPlugin(Star):
             }
         return domains
 
-    def _prompt(self, contexts: list[str], domains: dict[str, dict[str, str]]) -> str:
-        targets = ", ".join(domains)
+    def _prompt(self, contexts: list[str], persona_context: str) -> str:
         return (
-            "Review only the authorized memory excerpts below. Default to silence. "
-            "Choose an action only when it is concrete, timely, useful, and safe to send now. "
-            "Do not invent facts, obligations, or events. Do not disclose private memory to a group. "
-            f"Allowed targets: {targets}.\n"
+            "Review the authorized private and group memory excerpts below as one owner-only heartbeat context. "
+            "Your purpose is to identify one concrete thing worth doing now for the owner: following up on a real "
+            "commitment, sharing a specific relevant group development, delivering a timely reminder, or naturally "
+            "continuing an important thread. Default to silence when there is no such action. "
+            "Never invent facts, obligations, events, tool results, or urgency. Group excerpts are private decision "
+            "material for the owner only; never address or send anything to a group.\n"
             "Return exactly one JSON object, without markdown:\n"
             '{"action":"silent","target":"","message":""}\n'
-            'or {"action":"private","target":"private","message":"concise Chinese message"}\n'
-            'or {"action":"group","target":"group:<configured group id>","message":"concise Chinese message"}\n\n'
+            'or {"action":"message","target":"private","message":"one concise Chinese message for the owner"}\n\n'
+            "PrivateCompanion persona and runtime context:\n"
+            + persona_context[:5200]
+            + "\n\n"
             "Authorized memory excerpts:\n" + "\n\n".join(contexts)
         )
 
@@ -189,13 +233,12 @@ class SilentHeartbeatPlugin(Star):
         if not isinstance(payload, dict):
             return None
         action = str(payload.get("action", "")).strip().lower()
-        target = str(payload.get("target", "")).strip()
         message = str(payload.get("message", "")).strip()
         if action == "silent":
             return {"action": "silent", "target": "", "message": ""}
-        if action not in {"private", "group"} or not target or not message or len(message) > 500:
+        if action != "message" or str(payload.get("target", "")).strip() != "private" or not message or len(message) > 500:
             return None
-        return {"action": action, "target": target, "message": message}
+        return {"action": "message", "target": "private", "message": message}
 
     def _in_cooldown(self, session_id: str) -> bool:
         return time.monotonic() - self._last_sent_at.get(session_id, 0.0) < self._target_cooldown_minutes() * 60
