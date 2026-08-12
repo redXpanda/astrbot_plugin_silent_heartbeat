@@ -47,6 +47,12 @@
     "type": "float",
     "default": 3.0
   },
+  "diagnostic_history_limit": {
+    "description": "诊断记录保留次数",
+    "type": "int",
+    "hint": "保留最近的心跳结果、阶段和原因码；不保存记忆正文或消息内容。",
+    "default": 50
+  },
   "system_prompt": {
     "description": "心跳系统提示词",
     "type": "text",

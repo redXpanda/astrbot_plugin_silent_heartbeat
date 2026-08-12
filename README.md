@@ -12,6 +12,8 @@ On each interval, it:
 
 Any block, error, invalid model response, or rejected review releases the PrivateCompanion send lock and results in silence. Group sessions are read-only memory sources; this plugin never sends a heartbeat message to a group.
 
+Every run logs a compact result at `INFO` and persists the last 50 redacted outcomes in the plugin data directory. Diagnostics include the stopping stage, preflight/review reason codes, memory-domain counts, model decision, duration, and error type, but never memory excerpts or message text.
+
 ```json
 {
   "enabled": true,
